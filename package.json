@@ -1,0 +1,27 @@
+{
+  "name": "benchmark-ts-vs-as",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run asbuild:release && vite",
+    "build": "npm run asbuild:release && tsc && vite build",
+    "preview": "vite preview",
+    "asbuild:debug": "asc assembly/index.ts --target debug",
+    "asbuild:release": "asc assembly/index.ts --target release",
+    "asbuild": "npm run asbuild:debug && npm run asbuild:release",
+    "test": "node --test",
+    "start": "npx serve ."
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.28.20",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  },
+  "exports": {
+    ".": {
+      "import": "./build/release.js",
+      "types": "./build/release.d.ts"
+    }
+  }
+}
