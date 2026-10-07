@@ -15,8 +15,5 @@
       "converge": false,
       "noAssert": true
     }
-  },
-  "options": {
-    "bindings": "esm"
   }
 }

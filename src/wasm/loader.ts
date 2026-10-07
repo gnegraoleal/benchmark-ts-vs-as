@@ -1,10 +1,25 @@
-import { add as wasmAdd } from "../../build/release.js";
+import wasmUrl from "../../build/release.wasm?url";
 
-const possuiSuporteWasm = typeof WebAssembly === "object";
+const imports:  Object = {
+  env: {
+    abort() {
+      throw new Error("abort chamado pelo WASM");
+    },
+  },
+};
 
-export function add(a: number, b: number): number {
+interface Exports{
+  memory: WebAssembly.Memory,
+  saudacoes(): number
+}
+
+export async function carregarWasm() {
+  const possuiSuporteWasm = typeof WebAssembly === "object";
   if (!possuiSuporteWasm) {
     throw new Error("O navegador não possui suport a WebAssembly");
   }
-  return wasmAdd(a, b);
+  const wasmPromise = WebAssembly.instantiateStreaming(fetch(wasmUrl, imports));
+
+  const { instance } = await wasmPromise;
+  return instance.exports as unknown as Exports;
 }
