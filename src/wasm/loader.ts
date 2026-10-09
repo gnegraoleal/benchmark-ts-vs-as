@@ -4,54 +4,57 @@ const urlsWasm = import.meta.glob<string>("../../build/*.wasm", {
   eager: true
 });
 
-let instanciaAtiva: WebAssembly.Instance | null = null;
+function criarImports(obterInstancia: () => WebAssembly.Instance | null): WebAssembly.Imports{
+  return {
+    env: {
+      abort(messagePtr: number, fileNamePtr: number, linha: number, coluna: number) {
+        const instancia = obterInstancia();
+        if (!instancia) {
+          throw new Error("O abort foi chamado antes de existir uma instância ativa!");
+        }
+        const { buffer } = instancia.exports.memory as WebAssembly.Memory;
 
-const imports: WebAssembly.Imports = {
-  env: {
-    abort(messagePtr: number, fileNamePtr: number, linha: number, coluna: number) {
-      if (!instanciaAtiva) {
-        throw new Error("O abort foi chamado antes de existir uma instância ativa!");
-      }
-      const memory = instanciaAtiva.exports.memory as WebAssembly.Memory;
+        const mensagem = messagePtr ? lerString(buffer, messagePtr) : "Abort sem mensagem de erro!";
+        const fileName = fileNamePtr ? lerString(buffer, fileNamePtr) : "-";
 
-      const mensagem = messagePtr ? lerString(memory.buffer, messagePtr) : "Abort sem mensagem de erro!";
-      const fileName = fileNamePtr ? lerString(memory.buffer, fileNamePtr) : "-";
-
-      const error = `Erro no arquivo ${fileName} linha ${linha} e coluna ${coluna}: ${mensagem}`;
-      console.error(error);
-      throw new Error(error);
+        const error = `Erro no arquivo ${fileName} linha ${linha} e coluna ${coluna}: ${mensagem}`;
+        throw new Error(error);
+      },
     },
-  },
-};
+  }
+}
 
-interface Exports{
+
+const versoesCache = new Map<VersaoWasm, Promise<Exports>>();
+
+export interface Exports{
   memory: WebAssembly.Memory,
   saudacoes(): number,
-  testAbort(): void
+  testeAbort(): void
 }
 
 export type VersaoWasm = "release" | "debug";
 
-export async function carregarWasm(versao: VersaoWasm = "release") {
+export async function carregarWasm(versao: VersaoWasm = "release"): Promise<Exports> {
   const possuiSuporteWasm = typeof WebAssembly === "object";
   if (!possuiSuporteWasm) {
     throw new Error("O navegador não possui suporte a WebAssembly");
   }
 
-  const wasmUrl = getUrl(versao);
-  const wasmPromise = WebAssembly.instantiateStreaming(fetch(wasmUrl), imports);
+  const versaoEmCache = versoesCache.get(versao);
+  if (versaoEmCache) return versaoEmCache;
 
-  const { instance } = await wasmPromise;
-  instanciaAtiva = instance;
-  return instance?.exports as unknown as Exports;
+  const promise = getPromise(versao);
+  versoesCache.set(versao, promise);
+  promise.catch(() => versoesCache.delete(versao));
+  return promise;
 }
 
 export function lerString(buffer: ArrayBuffer, pointer: number) {
   if (pointer == 0) return "";
   const view = new DataView(buffer);
   const tamanho = view.getUint32(pointer - 4, true);
-  const tamanhoBytes = tamanho * 2;
-  const byteView = new Uint8Array(buffer, pointer, tamanhoBytes);
+  const byteView = new Uint8Array(buffer, pointer, tamanho);
   const textDecoder = new TextDecoder("utf-16le");
   return textDecoder.decode(byteView);
 }
@@ -60,7 +63,33 @@ export function lerString(buffer: ArrayBuffer, pointer: number) {
 function getUrl(versao : VersaoWasm) : string{
   const url = urlsWasm[`../../build/${versao}.wasm`];
   if (!url) {
-      throw new Error(`WASM "${versao}" não encontrado em build/. Compile essa versão antes.`);
+    throw new Error(`WASM "${versao}" não encontrado em build/. Compile essa versão antes.`);
+  }
+  return url;
+}
+
+async function getPromise(versao: VersaoWasm): Promise<Exports>{
+  const wasmUrl = getUrl(versao);
+  let instancia: WebAssembly.Instance | null = null;
+  const imports = criarImports(() => instancia);
+  const response = await fetch(wasmUrl);
+
+  if (!response.ok) {
+    throw new Error(`Erro ${response.status} ao carregar o WASM versão ${versao}`);
+  }
+  try {
+    try{
+      const wasmPromise = WebAssembly.instantiateStreaming(response.clone(), imports);
+      const { instance } = await wasmPromise;
+      instancia = instance;
+    } catch {
+      const bytes = await response.arrayBuffer();
+      const { instance } = await WebAssembly.instantiate(bytes, imports);
+      instancia = instance;
     }
-    return url;
+  } catch (erro) {
+    throw new Error(`Erro ao instanciar o WASM ${versao}`, { cause: erro })
+  }
+
+  return instancia.exports as unknown as Exports;
 }
