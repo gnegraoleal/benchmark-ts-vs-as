@@ -1,3 +1,5 @@
+import { lerString } from "./memory";
+
 const urlsWasm = import.meta.glob<string>("../../build/*.wasm", {
   query: "?url",
   import: "default",
@@ -12,10 +14,10 @@ function criarImports(obterInstancia: () => WebAssembly.Instance | null): WebAss
         if (!instancia) {
           throw new Error("O abort foi chamado antes de existir uma instância ativa!");
         }
-        const { buffer } = instancia.exports.memory as WebAssembly.Memory;
+        const memory = instancia.exports.memory as WebAssembly.Memory;
 
-        const mensagem = messagePtr ? lerString(buffer, messagePtr) : "Abort sem mensagem de erro!";
-        const fileName = fileNamePtr ? lerString(buffer, fileNamePtr) : "-";
+        const mensagem = messagePtr ? lerString(memory, messagePtr) : "Abort sem mensagem de erro!";
+        const fileName = fileNamePtr ? lerString(memory, fileNamePtr) : "-";
 
         const error = `Erro no arquivo ${fileName} linha ${linha} e coluna ${coluna}: ${mensagem}`;
         throw new Error(error);
@@ -49,16 +51,6 @@ export async function carregarWasm(versao: VersaoWasm = "release"): Promise<Expo
   promise.catch(() => versoesCache.delete(versao));
   return promise;
 }
-
-export function lerString(buffer: ArrayBuffer, pointer: number) {
-  if (pointer == 0) return "";
-  const view = new DataView(buffer);
-  const tamanho = view.getUint32(pointer - 4, true);
-  const byteView = new Uint8Array(buffer, pointer, tamanho);
-  const textDecoder = new TextDecoder("utf-16le");
-  return textDecoder.decode(byteView);
-}
-
 
 function getUrl(versao : VersaoWasm) : string{
   const url = urlsWasm[`../../build/${versao}.wasm`];
